@@ -11,8 +11,9 @@ async function get(url) {
 }
 
 function formatNumber(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return n;
+  return n || 0;
 }
 
 function formatDate(d) {
@@ -22,12 +23,29 @@ function formatDate(d) {
 
 function $(sel) { return document.querySelector(sel); }
 
+function loading() { return '<div class="loading"><div class="spinner"></div><p>Loading...</p></div>'; }
+
+function toast(message, type) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (type || 'info');
+  t.textContent = message;
+  t.onclick = () => t.remove();
+  document.body.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  if (type !== 'error') setTimeout(() => t.classList.remove('show'), 3000);
+  setTimeout(() => t.remove(), 3500);
+}
+
+function escapeHtml(str) {
+  if (!str) return '—';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function viewDashboard() {
   currentView = 'dashboard';
-  $('.nav-links a').classList.remove('active');
-  $('[data-nav="dashboard"]').classList.add('active');
+  setActiveNav('dashboard');
   const app = $('#app');
-  app.innerHTML = '<div class="loading">Loading dashboard...</div>';
+  app.innerHTML = loading();
   Promise.all([get('/api/profiles/stats'), get('/api/profiles')])
     .then(([stats, list]) => {
       app.innerHTML = `
@@ -37,32 +55,48 @@ function viewDashboard() {
           <div class="stat-card"><div class="value">${stats.avg_followers}</div><div class="label">Avg Followers</div></div>
           <div class="stat-card"><div class="value">${stats.avg_repos}</div><div class="label">Avg Repos</div></div>
         </div>
+        ${stats.most_followed ? `
         <div class="card">
-          <h2>Most Followed</h2>
-          ${stats.most_followed ? `<p style="font-size:18px"><strong>${stats.most_followed.username}</strong> — ${formatNumber(stats.most_followed.followers)} followers</p>` : '<p class="empty">No profiles yet</p>'}
-        </div>
+          <h2>👑 Most Followed</h2>
+          <div class="top-user" onclick="viewProfile('${stats.most_followed.username}')">
+            <span class="top-user-name">${escapeHtml(stats.most_followed.username)}</span>
+            <span class="top-user-stat">${formatNumber(stats.most_followed.followers)} followers</span>
+          </div>
+        </div>` : ''}
+        ${stats.most_repos ? `
         <div class="card">
-          <h2>Most Repos</h2>
-          ${stats.most_repos ? `<p style="font-size:18px"><strong>${stats.most_repos.username}</strong> — ${stats.most_repos.public_repos} public repos</p>` : '<p class="empty">No profiles yet</p>'}
-        </div>
+          <h2>📦 Most Repos</h2>
+          <div class="top-user" onclick="viewProfile('${stats.most_repos.username}')">
+            <span class="top-user-name">${escapeHtml(stats.most_repos.username)}</span>
+            <span class="top-user-stat">${stats.most_repos.public_repos} public repos</span>
+          </div>
+        </div>` : ''}
         <div class="card">
           <h2>Recent Profiles</h2>
           ${list.profiles.length ? list.profiles.slice(0, 5).map(p => `
-            <div class="profile-row" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #eee;cursor:pointer" onclick="viewProfile('${p.username}')">
-              <img src="${p.avatar_url}" style="width:40px;height:40px;border-radius:50%" alt="">
-              <div><strong>${p.name || p.username}</strong><br><span style="color:#586069;font-size:13px">@${p.username} · ${formatNumber(p.followers)} followers</span></div>
+            <div class="profile-row" onclick="viewProfile('${p.username}')">
+              <img src="${p.avatar_url}" alt="">
+              <div class="profile-row-info">
+                <strong>${escapeHtml(p.name || p.username)}</strong>
+                <span class="profile-row-meta">@${p.username} · ${formatNumber(p.followers)} followers</span>
+              </div>
             </div>
-          `).join('') : '<p class="empty">No profiles yet. Go to Profiles tab to add one.</p>'}
+          `).join('') : '<p class="empty">No profiles yet. Go to <a href="#" onclick="viewProfiles();return false">Profiles</a> tab to add one.</p>'}
         </div>
       `;
     })
-    .catch(err => { app.innerHTML = `<div class="error">${err.message}</div>`; });
+    .catch(err => { app.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`; });
+}
+
+function setActiveNav(view) {
+  document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+  const link = document.querySelector(`[data-nav="${view}"]`);
+  if (link) link.classList.add('active');
 }
 
 function viewProfiles() {
   currentView = 'profiles';
-  $('.nav-links a').classList.remove('active');
-  $('[data-nav="profiles"]').classList.add('active');
+  setActiveNav('profiles');
   renderProfiles();
 }
 
@@ -70,29 +104,30 @@ function renderProfiles(search) {
   const app = $('#app');
   app.innerHTML = `
     <div class="card">
-      <h2>Analyze a Profile</h2>
-      <div class="search-bar">
-        <input type="text" id="fetch-input" placeholder="Enter GitHub username..." style="max-width:300px">
-        <button class="btn btn-primary" onclick="fetchProfile()">Fetch & Store</button>
+      <div class="analyze-row">
+        <input type="text" id="fetch-input" placeholder="Enter GitHub username..." onkeydown="if(event.key==='Enter')fetchProfile()">
+        <button class="btn btn-primary" id="fetch-btn" onclick="fetchProfile()">Analyze</button>
       </div>
     </div>
     <div class="card">
-      <h2>Stored Profiles</h2>
-      <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Search by name, username, location..." value="${search || ''}" oninput="debouncedSearch()">
+      <div class="card-header">
+        <h2>Stored Profiles</h2>
       </div>
-      <div id="profiles-list"><div class="loading">Loading...</div></div>
+      <div class="search-bar">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search profiles..." value="${escapeHtml(search || '')}" oninput="debouncedSearch()">
+      </div>
+      <div id="profiles-list">${loading()}</div>
     </div>
   `;
+  if (search) $('#search-input').focus();
   loadProfiles(search);
 }
 
 let searchTimer;
 function debouncedSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    loadProfiles($('#search-input').value);
-  }, 300);
+  searchTimer = setTimeout(() => loadProfiles($('#search-input').value), 300);
 }
 
 async function loadProfiles(search) {
@@ -100,102 +135,132 @@ async function loadProfiles(search) {
     const q = search ? `?search=${encodeURIComponent(search)}` : '';
     const data = await get(`/api/profiles${q}`);
     const list = $('#profiles-list');
-    if (!data.profiles.length) {
-      list.innerHTML = '<p class="empty">No profiles found</p>';
+    if (!data || !data.profiles || !data.profiles.length) {
+      list.innerHTML = '<p class="empty">🔍 No profiles found</p>';
       return;
     }
     list.innerHTML = `
       <table>
-        <thead><tr><th>Avatar</th><th>Username</th><th>Name</th><th>Followers</th><th>Repos</th><th>Location</th><th>Fetched</th></tr></thead>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Username</th>
+            <th>Name</th>
+            <th>Followers</th>
+            <th>Repos</th>
+            <th>Location</th>
+            <th>Fetched</th>
+          </tr>
+        </thead>
         <tbody>
           ${data.profiles.map(p => `
             <tr onclick="viewProfile('${p.username}')">
-              <td><img src="${p.avatar_url}" style="width:32px;height:32px;border-radius:50%" alt=""></td>
-              <td><strong>${p.username}</strong></td>
-              <td>${p.name || '—'}</td>
+              <td><img src="${p.avatar_url}" class="avatar-sm" alt=""></td>
+              <td><strong>${escapeHtml(p.username)}</strong></td>
+              <td>${escapeHtml(p.name)}</td>
               <td>${formatNumber(p.followers)}</td>
               <td>${p.public_repos}</td>
-              <td>${p.location || '—'}</td>
-              <td>${formatDate(p.updated_at)}</td>
+              <td>${escapeHtml(p.location)}</td>
+              <td class="text-muted">${formatDate(p.updated_at)}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
     `;
   } catch (err) {
-    $('#profiles-list').innerHTML = `<div class="error">${err.message}</div>`;
+    const list = $('#profiles-list');
+    if (list) list.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`;
   }
 }
 
 async function fetchProfile() {
   const input = $('#fetch-input');
+  const btn = $('#fetch-btn');
   const username = input.value.trim();
-  if (!username) return;
+  if (!username) { input.focus(); return; }
+
   input.disabled = true;
+  btn.disabled = true;
+  btn.innerHTML = '⏳ Fetching...';
+
   try {
-    const res = await fetch(`${API}/api/profiles/${username}`, { method: 'POST' });
-    if (!res.ok) throw new Error((await res.json()).error || 'Failed to fetch');
+    const res = await fetch(`${API}/api/profiles/${encodeURIComponent(username)}`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Request failed' }));
+      throw new Error(err.error || 'Request failed');
+    }
+    const profile = await res.json();
     input.value = '';
+    toast(`✅ ${profile.name || profile.username} stored successfully!`, 'success');
     loadProfiles($('#search-input')?.value || '');
   } catch (err) {
-    alert(err.message);
+    toast(`❌ ${err.message}`, 'error');
   } finally {
     input.disabled = false;
+    btn.disabled = false;
+    btn.innerHTML = 'Analyze';
     input.focus();
   }
 }
 
 async function viewProfile(username) {
+  currentView = 'profile';
   const app = $('#app');
-  app.innerHTML = '<div class="loading">Loading...</div>';
+  app.innerHTML = loading();
   try {
-    const p = await get(`/api/profiles/${username}`);
+    const p = await get(`/api/profiles/${encodeURIComponent(username)}`);
     app.innerHTML = `
-      <button class="btn btn-secondary" onclick="${currentView === 'dashboard' ? 'viewDashboard()' : 'viewProfiles()'}" style="margin-bottom:16px">&larr; Back</button>
-      <div class="card">
+      <button class="btn btn-ghost" onclick="goBack()">← Back</button>
+      <div class="profile-card">
         <div class="profile-header">
-          <img src="${p.avatar_url}" alt="${p.username}">
+          <img src="${p.avatar_url}" alt="${escapeHtml(p.username)}" class="profile-avatar">
           <div class="profile-info">
-            <h1>${p.name || p.username}</h1>
-            <div class="login">@${p.username}</div>
-            ${p.bio ? `<div class="bio">${p.bio}</div>` : ''}
-            <div class="profile-meta">
-              <div class="meta-item"><div class="m-value">${formatNumber(p.followers)}</div><div class="m-label">Followers</div></div>
-              <div class="meta-item"><div class="m-value">${p.following}</div><div class="m-label">Following</div></div>
-              <div class="meta-item"><div class="m-value">${p.public_repos}</div><div class="m-label">Public Repos</div></div>
-              <div class="meta-item"><div class="m-value">${p.public_gists}</div><div class="m-label">Public Gists</div></div>
-            </div>
+            <h1>${escapeHtml(p.name || p.username)}</h1>
+            <div class="login">@${escapeHtml(p.username)}</div>
+            ${p.bio ? `<div class="bio">${escapeHtml(p.bio)}</div>` : ''}
+            ${p.company ? `<div class="bio-detail">🏢 ${escapeHtml(p.company)}</div>` : ''}
+            ${p.location ? `<div class="bio-detail">📍 ${escapeHtml(p.location)}</div>` : ''}
           </div>
         </div>
-      </div>
-      <div class="card">
-        <h2>Details</h2>
-        <table>
-          <tr><td style="width:140px;font-weight:600">Company</td><td>${p.company || '—'}</td></tr>
-          <tr><td style="font-weight:600">Location</td><td>${p.location || '—'}</td></tr>
-          <tr><td style="font-weight:600">Blog</td><td>${p.blog ? `<a href="${p.blog}" target="_blank">${p.blog}</a>` : '—'}</td></tr>
-          <tr><td style="font-weight:600">Email</td><td>${p.email || '—'}</td></tr>
-          <tr><td style="font-weight:600">Twitter</td><td>${p.twitter_username ? '@' + p.twitter_username : '—'}</td></tr>
-          <tr><td style="font-weight:600">Joined GitHub</td><td>${formatDate(p.github_created_at)}</td></tr>
-          <tr><td style="font-weight:600">Profile URL</td><td><a href="${p.profile_url}" target="_blank">${p.profile_url}</a></td></tr>
-          <tr><td style="font-weight:600">Analyzed On</td><td>${formatDate(p.created_at)}</td></tr>
-        </table>
-        <button class="btn btn-danger" onclick="deleteProfile('${p.username}')" style="margin-top:16px">Delete Profile</button>
+        <div class="profile-meta">
+          <div class="meta-item"><div class="m-value">${formatNumber(p.followers)}</div><div class="m-label">Followers</div></div>
+          <div class="meta-item"><div class="m-value">${p.following}</div><div class="m-label">Following</div></div>
+          <div class="meta-item"><div class="m-value">${p.public_repos}</div><div class="m-label">Public Repos</div></div>
+          <div class="meta-item"><div class="m-value">${p.public_gists}</div><div class="m-label">Public Gists</div></div>
+        </div>
+        <div class="profile-details">
+          <div class="detail-row"><span class="detail-label">Blog</span><span class="detail-value">${p.blog ? `<a href="${escapeHtml(p.blog)}" target="_blank">${escapeHtml(p.blog)}</a>` : '—'}</span></div>
+          <div class="detail-row"><span class="detail-label">Email</span><span class="detail-value">${p.email || '—'}</span></div>
+          <div class="detail-row"><span class="detail-label">Twitter</span><span class="detail-value">${p.twitter_username ? '@' + escapeHtml(p.twitter_username) : '—'}</span></div>
+          <div class="detail-row"><span class="detail-label">Joined GitHub</span><span class="detail-value">${formatDate(p.github_created_at)}</span></div>
+          <div class="detail-row"><span class="detail-label">GitHub URL</span><span class="detail-value"><a href="${escapeHtml(p.profile_url)}" target="_blank">${escapeHtml(p.profile_url)}</a></span></div>
+          <div class="detail-row"><span class="detail-label">Analyzed On</span><span class="detail-value">${formatDate(p.created_at)}</span></div>
+        </div>
+        <button class="btn btn-danger" onclick="deleteProfile('${p.username}')">🗑 Delete Profile</button>
       </div>
     `;
   } catch (err) {
-    app.innerHTML = `<div class="error">${err.message}</div>`;
+    app.innerHTML = `<div class="error">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function goBack() {
+  if (currentView === 'profile') {
+    viewProfiles();
+  } else {
+    viewDashboard();
   }
 }
 
 async function deleteProfile(username) {
   if (!confirm(`Delete ${username}?`)) return;
   try {
-    const res = await fetch(`${API}/api/profiles/${username}`, { method: 'DELETE' });
+    const res = await fetch(`${API}/api/profiles/${encodeURIComponent(username)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Delete failed');
+    toast(`🗑 ${username} deleted`, 'info');
     viewProfiles();
   } catch (err) {
-    alert(err.message);
+    toast(`❌ ${err.message}`, 'error');
   }
 }
 
