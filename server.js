@@ -23,5 +23,5 @@ app.use('/api/profiles', profileRoutes);
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 app.use(errorHandler);
 
-initDb().catch(err => console.error('DB init:', err.message));
+initDb().then(() => console.log('DB initialized')).catch(err => console.error('DB init failed:', err));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
