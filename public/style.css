@@ -166,6 +166,8 @@ body {
 .btn-danger { background: #d73a49; color: #fff; }
 .btn-danger:hover:not(:disabled) { background: #b93240; }
 
+[data-action] { cursor: pointer; }
+
 .btn-ghost {
   background: transparent;
   color: #586069;
