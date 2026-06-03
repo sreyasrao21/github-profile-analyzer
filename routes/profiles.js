@@ -2,6 +2,11 @@ const { Router } = require('express');
 const { fetchProfile } = require('../services/github');
 const { upsertProfile, getAllProfiles, getProfileByUsername, deleteProfile, getStats } = require('../models/profile');
 
+function toMySqlDate(iso) {
+  if (!iso) return null;
+  return new Date(iso).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 const router = Router();
 
 router.get('/', async (req, res, next) => {
@@ -67,7 +72,7 @@ router.post('/:username', async (req, res, next) => {
       public_gists: data.public_gists,
       followers: data.followers,
       following: data.following,
-      github_created_at: data.created_at,
+      github_created_at: toMySqlDate(data.created_at),
       profile_url: data.html_url,
     };
     await upsertProfile(profile);
