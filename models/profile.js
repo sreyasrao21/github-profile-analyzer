@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+const { pool } = require('../config/db');
 
 async function upsertProfile(profile) {
   const sql = `

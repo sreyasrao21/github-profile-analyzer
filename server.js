@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const { initDb } = require('./config/db');
 const profileRoutes = require('./routes/profiles');
 const errorHandler = require('./middleware/errorHandler');
 
@@ -21,4 +22,5 @@ app.use('/api/profiles', profileRoutes);
 app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
 app.use(errorHandler);
 
+initDb().catch(err => console.error('DB init:', err.message));
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
