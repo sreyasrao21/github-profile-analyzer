@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
@@ -20,7 +20,9 @@ app.use('/api/', rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/profiles', profileRoutes);
-app.use((req, res) => res.status(404).json({ error: 'Route not found' }));
+
+app.use(express.static('public'));
+app.get('*', (req, res) => res.sendFile('index.html', { root: 'public' }));
 app.use(errorHandler);
 
 initDb().then(() => console.log('DB initialized')).catch(err => console.error('DB init failed:', err));
